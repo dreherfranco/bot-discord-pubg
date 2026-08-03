@@ -5,7 +5,12 @@ Bot en Python (discord.py) con estos comandos:
 - `/pubgstats <jugador> [modo]`: estadísticas lifetime de PUBG de un jugador (shard Steam). Modo por defecto: `squad` (TPP).
 - `/squadstats [modo]`: estadísticas de todo el squad registrado en `squad.json`, en una sola respuesta.
 - `/jugadordelasemana`: calcula quién tuvo el mejor promedio de daño desde el último checkpoint (ventana móvil de ~7 días).
+- `/ultimapartida <jugador>`: resultado de la partida más reciente (mapa, posición, kills, daño, tiempo de vida).
+- `/vs <jugador1> <jugador2> [modo]`: compara las stats lifetime de dos jugadores lado a lado.
+- `/racha <jugador>`: detecta si viene de una racha de victorias o de partidas sin kills.
+- `/armafavorita <jugador> [partidas]`: arma con más kills en sus últimas partidas (analiza telemetry).
 - `/reiniciarsemana`: reinicia manualmente el checkpoint semanal (requiere permiso "Gestionar servidor").
+- `/ayuda`: lista estos comandos dentro de Discord.
 
 ## Roster del squad (`squad.json`)
 
@@ -79,3 +84,5 @@ Mientras tengas la terminal abierta y `python bot.py` corriendo, el bot funciona
 - Las stats que muestra el bot son **lifetime** (las mismas que "Overall" dentro del juego), no de la temporada actual — es el endpoint más simple y estable de la API de PUBG.
 - `/jugadordelasemana` no depende de un cron: cada jugador tiene su propio checkpoint guardado en `weekly_snapshots.json` (se crea solo). La primera vez que corrés el comando para un jugador nuevo, ese jugador arranca su checkpoint y todavía no compite en el ranking — va a aparecer recién la próxima vez que corras el comando, comparando contra ese punto de partida. Si pasan más de 7 días entre corridas, el checkpoint de ese jugador se reinicia solo.
 - Con squads grandes (varios jugadores), `/squadstats` y `/jugadordelasemana` hacen varias consultas seguidas a la API de PUBG. La key gratuita tiene un límite de ~10 requests/minuto — si lo usás muy seguido con un squad de 8-10 jugadores podés toparte con el límite (el bot te va a avisar si pasa).
+- `/ultimapartida`, `/vs` (indirectamente, vía `/racha`) y `/armafavorita` usan datos de **partidas**, que la API de PUBG solo retiene los últimos **14 días**. Fuera de esa ventana no hay datos disponibles.
+- `/armafavorita` descarga y analiza el archivo de telemetry de cada partida (puede pesar varios MB), así que tarda más que los otros comandos — usá pocas partidas (`partidas`, por defecto 3, máximo 5) si querés que sea más rápido.

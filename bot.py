@@ -3,6 +3,10 @@ Bot de Discord con:
   - /pubgstats <jugador> [modo]  -> estadísticas lifetime de PUBG (shard steam)
   - /squadstats [modo]           -> estadísticas de todo el squad (squad.json)
   - /jugadordelasemana           -> mejor promedio de daño desde el último checkpoint
+  - /ultimapartida <jugador>     -> resultado de la última partida jugada
+  - /vs <jugador1> <jugador2>    -> compara stats lifetime de dos jugadores
+  - /racha <jugador>             -> racha de victorias o de partidas sin kills
+  - /armafavorita <jugador>      -> arma con más kills en las últimas partidas
 
 Configuración: ver .env.example / README.md
 """
@@ -19,6 +23,9 @@ from pubg_client import (
     PubgApiError,
     format_stats_summary,
     format_squad_line,
+    format_match_summary,
+    format_favorite_weapon,
+    compute_streaks,
     VALID_GAME_MODES,
 )
 from squad_roster import load_roster, RosterError
@@ -198,6 +205,154 @@ async def jugadordelasemana(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed)
 
 
+# --- Slash command: /ultimapartida ---
+@client.tree.command(name="ultimapartida", description="Resultado de la última partida jugada por un jugador")
+@app_commands.describe(jugador="Nombre exacto del jugador en PUBG")
+async def ultimapartida(interaction: discord.Interaction, jugador: str):
+    if not pubg_client:
+        await interaction.response.send_message(
+            "El bot no tiene configurada la PUBG_API_KEY. Revisá el .env.", ephemeral=True
+        )
+        return
+
+    await interaction.response.defer()
+
+    try:
+        matches = await pubg_client.get_recent_matches(jugador, limit=5)
+    except PubgApiError as e:
+        await interaction.followup.send(f"No pude traer la partida: {e}")
+        return
+    except Exception:
+        log.exception("Error inesperado consultando PUBG API (ultimapartida)")
+        await interaction.followup.send("Ocurrió un error inesperado consultando la API de PUBG.")
+        return
+
+    if not matches:
+        await interaction.followup.send(f"No encontré partidas recientes de '{jugador}' (últimos 14 días).")
+        return
+
+    resumen = format_match_summary(jugador, matches[0])
+    embed = discord.Embed(description=resumen, color=discord.Color.blurple())
+    embed.set_footer(text="Datos: PUBG API (match data)")
+    await interaction.followup.send(embed=embed)
+
+
+# --- Slash command: /vs ---
+@client.tree.command(name="vs", description="Compara las stats lifetime de dos jugadores")
+@app_commands.describe(
+    jugador1="Primer jugador",
+    jugador2="Segundo jugador",
+    modo="Modo de juego (por defecto squad)",
+)
+@app_commands.choices(
+    modo=[app_commands.Choice(name=m, value=m) for m in VALID_GAME_MODES]
+)
+async def vs(
+    interaction: discord.Interaction,
+    jugador1: str,
+    jugador2: str,
+    modo: app_commands.Choice[str] = None,
+):
+    if not pubg_client:
+        await interaction.response.send_message(
+            "El bot no tiene configurada la PUBG_API_KEY. Revisá el .env.", ephemeral=True
+        )
+        return
+
+    await interaction.response.defer()
+    game_mode = modo.value if modo else "squad"
+
+    try:
+        results = await pubg_client.get_squad_stats([jugador1, jugador2], game_mode)
+    except Exception:
+        log.exception("Error inesperado consultando PUBG API (vs)")
+        await interaction.followup.send("Ocurrió un error inesperado consultando la API de PUBG.")
+        return
+
+    lines = [format_squad_line(r["name"], r["stats"], r["error"]) for r in results]
+    embed = discord.Embed(
+        title=f"{jugador1} vs {jugador2} ({game_mode})",
+        description="\n".join(lines),
+        color=discord.Color.red(),
+    )
+    embed.set_footer(text="Datos: PUBG API (lifetime stats)")
+    await interaction.followup.send(embed=embed)
+
+
+# --- Slash command: /racha ---
+@client.tree.command(name="racha", description="Racha de victorias o de partidas sin kills de un jugador")
+@app_commands.describe(jugador="Nombre exacto del jugador en PUBG")
+async def racha(interaction: discord.Interaction, jugador: str):
+    if not pubg_client:
+        await interaction.response.send_message(
+            "El bot no tiene configurada la PUBG_API_KEY. Revisá el .env.", ephemeral=True
+        )
+        return
+
+    await interaction.response.defer()
+
+    try:
+        matches = await pubg_client.get_recent_matches(jugador, limit=5)
+    except PubgApiError as e:
+        await interaction.followup.send(f"No pude traer las partidas: {e}")
+        return
+    except Exception:
+        log.exception("Error inesperado consultando PUBG API (racha)")
+        await interaction.followup.send("Ocurrió un error inesperado consultando la API de PUBG.")
+        return
+
+    if not matches:
+        await interaction.followup.send(f"No encontré partidas recientes de '{jugador}' (últimos 14 días).")
+        return
+
+    streaks = compute_streaks(matches)
+    win_streak = streaks["win_streak"]
+    no_kill_streak = streaks["no_kill_streak"]
+
+    if win_streak >= 2:
+        texto = f"🔥 **{jugador}** viene de **{win_streak} victorias seguidas**!"
+    elif no_kill_streak >= 2:
+        texto = f"💀 **{jugador}** lleva **{no_kill_streak} partidas seguidas sin kills**."
+    else:
+        texto = f"Sin racha destacada para **{jugador}** en las últimas {len(matches)} partidas."
+
+    embed = discord.Embed(description=texto, color=discord.Color.dark_gold())
+    embed.set_footer(text=f"Basado en las últimas {len(matches)} partidas (máx. 14 días)")
+    await interaction.followup.send(embed=embed)
+
+
+# --- Slash command: /armafavorita ---
+@client.tree.command(name="armafavorita", description="Arma con más kills de un jugador en sus últimas partidas")
+@app_commands.describe(
+    jugador="Nombre exacto del jugador en PUBG",
+    partidas="Cantidad de partidas recientes a analizar (1-5, por defecto 3)",
+)
+async def armafavorita(interaction: discord.Interaction, jugador: str, partidas: int = 3):
+    if not pubg_client:
+        await interaction.response.send_message(
+            "El bot no tiene configurada la PUBG_API_KEY. Revisá el .env.", ephemeral=True
+        )
+        return
+
+    partidas = max(1, min(partidas, 5))
+    await interaction.response.defer()
+
+    try:
+        resultado = await pubg_client.get_favorite_weapon(jugador, num_matches=partidas)
+    except PubgApiError as e:
+        await interaction.followup.send(f"No pude analizar las partidas: {e}")
+        return
+    except Exception:
+        log.exception("Error inesperado consultando PUBG API (armafavorita)")
+        await interaction.followup.send("Ocurrió un error inesperado consultando la API de PUBG.")
+        return
+
+    texto = format_favorite_weapon(jugador, resultado)
+    embed = discord.Embed(description=texto, color=discord.Color.dark_red())
+    embed.set_footer(text="Datos: PUBG API telemetry (puede tardar unos segundos)")
+    await interaction.followup.send(embed=embed)
+
+
 # --- Slash command: /reiniciarsemana ---
 @client.tree.command(name="reiniciarsemana", description="Reinicia manualmente el checkpoint de jugador de la semana")
 @app_commands.checks.has_permissions(manage_guild=True)
@@ -226,6 +381,26 @@ async def ayuda(interaction: discord.Interaction):
     embed.add_field(
         name="/jugadordelasemana",
         value="Ranking por mejor daño promedio desde el último checkpoint (~7 días).",
+        inline=False,
+    )
+    embed.add_field(
+        name="/ultimapartida <jugador>",
+        value="Resultado de la última partida jugada: mapa, posición, kills, daño, tiempo de vida.",
+        inline=False,
+    )
+    embed.add_field(
+        name="/vs <jugador1> <jugador2> [modo]",
+        value="Compara las stats lifetime de dos jugadores lado a lado.",
+        inline=False,
+    )
+    embed.add_field(
+        name="/racha <jugador>",
+        value="Detecta si viene de una racha de victorias o de partidas sin kills.",
+        inline=False,
+    )
+    embed.add_field(
+        name="/armafavorita <jugador> [partidas]",
+        value="Arma con más kills en sus últimas partidas (analiza telemetry, puede tardar unos segundos).",
         inline=False,
     )
     embed.add_field(

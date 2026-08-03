@@ -41,6 +41,18 @@ PUBG/Krafton no tiene una API oficial para avisos de mantenimiento — los anunc
 
 Para activar el chequeo automático, en Discord activá el modo desarrollador (Configuración → Avanzado) y copiá el ID del canal donde querés el aviso (clic derecho sobre el canal → Copiar ID), y ponelo en `NOTIFY_CHANNEL_ID` del `.env`. Si no lo configurás, el chequeo automático queda desactivado, pero `/mantenimiento` sigue funcionando igual como comando manual.
 
+## Anuncio semanal automático
+
+El bot también puede postear solo, cada semana, el jugador de la semana (mismo ranking que `/jugadordelasemana`) — por defecto los **domingos 20:00 hora Argentina** (23:00 UTC), en el mismo canal que `NOTIFY_CHANNEL_ID`. Después de anunciar, reinicia el checkpoint de todo el squad para arrancar la semana siguiente de cero.
+
+Variables opcionales en el `.env` para personalizarlo:
+
+- `WEEKLY_ANNOUNCE_CHANNEL_ID`: si querés que se postee en un canal distinto al de mantenimiento. Si no la definís, usa `NOTIFY_CHANNEL_ID`.
+- `WEEKLY_ANNOUNCE_WEEKDAY`: día de la semana (0=lunes … 6=domingo). Por defecto `6` (domingo).
+- `WEEKLY_ANNOUNCE_HOUR_UTC`: hora en **UTC** (no hora local) a la que se postea. Por defecto `23` (= 20:00 en Argentina, UTC-3). Si el servidor donde hostees el bot usa otro huso horario para su reloj interno, igual se calcula en UTC — no hace falta tocar nada.
+
+Este anuncio automático necesita que `pubg_client` esté configurado (o sea, `PUBG_API_KEY`) y algún roster (`squad.json` o `SQUAD_ROSTER`) además del canal.
+
 ## 1. Requisitos
 
 - Python 3.10 o superior.
@@ -99,7 +111,7 @@ Mientras tengas la terminal abierta y `python bot.py` corriendo, el bot funciona
    - `PUBG_API_KEY`
    - `PUBG_SHARD` (`steam`)
    - `SQUAD_ROSTER` — **importante**: como `squad.json` no se sube al repo (está en `.gitignore` a propósito), acá tenés que definir el roster como variable de entorno, con los nombres separados por coma. Ejemplo: `SQUAD_ROSTER=dreher,DubenDoldan,aregol333,Matias533,KuxuroElDios,LaBolcholsa`
-   - `NOTIFY_CHANNEL_ID` — opcional, si querés el aviso automático de mantenimiento.
+   - `NOTIFY_CHANNEL_ID` — opcional, si querés el aviso automático de mantenimiento y/o el anuncio semanal (comparten canal salvo que definas `WEEKLY_ANNOUNCE_CHANNEL_ID` aparte).
 6. Guardá — Railway redeploya solo y el bot debería aparecer conectado en los logs.
 
 Railway tiene un plan gratuito con créditos limitados por mes; para que el bot ande sin cortes las 24hs de forma indefinida, en algún momento vas a necesitar pasar a un plan pago (charges por uso, generalmente unos pocos dólares al mes para un bot chico).

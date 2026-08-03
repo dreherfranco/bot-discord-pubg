@@ -12,9 +12,12 @@ para ese jugador).
 import json
 import os
 import time
+from datetime import datetime, timezone
 
 SNAPSHOT_FILE = "weekly_snapshots.json"
 WEEK_SECONDS = 7 * 24 * 60 * 60
+
+ANNOUNCE_STATE_FILE = "weekly_announce_state.json"
 
 
 def _load_snapshots() -> dict:
@@ -86,3 +89,25 @@ def reset_all() -> None:
     """Borra todos los checkpoints (arranca una semana nueva para todos)."""
     if os.path.exists(SNAPSHOT_FILE):
         os.remove(SNAPSHOT_FILE)
+
+
+def _current_year_week() -> str:
+    iso = datetime.now(timezone.utc).isocalendar()
+    return f"{iso[0]}-W{iso[1]}"
+
+
+def was_announced_this_week() -> bool:
+    """Indica si ya se hizo el anuncio automático semanal en la semana calendario actual (UTC)."""
+    if not os.path.exists(ANNOUNCE_STATE_FILE):
+        return False
+    try:
+        with open(ANNOUNCE_STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return False
+    return data.get("last_announced") == _current_year_week()
+
+
+def mark_announced_this_week() -> None:
+    with open(ANNOUNCE_STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump({"last_announced": _current_year_week()}, f)

@@ -9,12 +9,14 @@ Bot de Discord con:
   - /armafavorita <jugador>      -> arma con más kills en las últimas partidas
   - /mantenimiento               -> último aviso de mantenimiento (chequeo manual)
   - Aviso automático en un canal cuando aparece un anuncio nuevo de mantenimiento
+  - Anuncio automático semanal del jugador de la semana (día/hora configurables)
 
 Configuración: ver .env.example / README.md
 """
 
 import os
 import logging
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
@@ -32,7 +34,12 @@ from pubg_client import (
     VALID_GAME_MODES,
 )
 from squad_roster import load_roster, RosterError
-from squad_weekly import get_weekly_deltas, reset_all as reset_weekly
+from squad_weekly import (
+    get_weekly_deltas,
+    reset_all as reset_weekly,
+    was_announced_this_week,
+    mark_announced_this_week,
+)
 from steam_news import (
     fetch_recent_news,
     is_maintenance_related,
@@ -53,6 +60,13 @@ PUBG_SHARD = os.getenv("PUBG_SHARD", "steam")
 NOTIFY_CHANNEL_ID = os.getenv("NOTIFY_CHANNEL_ID")  # canal donde avisar mantenimiento
 MAINTENANCE_CHECK_SECONDS = int(os.getenv("MAINTENANCE_CHECK_SECONDS", "1800"))  # 30 min
 
+# Anuncio semanal automático del jugador de la semana.
+# Por defecto: domingo 20:00 hora Argentina (UTC-3) = domingo 23:00 UTC.
+# weekday(): lunes=0 ... domingo=6
+WEEKLY_ANNOUNCE_CHANNEL_ID = os.getenv("WEEKLY_ANNOUNCE_CHANNEL_ID") or NOTIFY_CHANNEL_ID
+WEEKLY_ANNOUNCE_WEEKDAY = int(os.getenv("WEEKLY_ANNOUNCE_WEEKDAY", "6"))
+WEEKLY_ANNOUNCE_HOUR_UTC = int(os.getenv("WEEKLY_ANNOUNCE_HOUR_UTC", "23"))
+
 # --- Cliente de la API de PUBG ---
 pubg_client = PubgClient(api_key=PUBG_API_KEY, shard=PUBG_SHARD) if PUBG_API_KEY else None
 
@@ -70,6 +84,14 @@ class PubgBot(discord.Client):
             check_maintenance_loop.start()
         else:
             log.warning("Aviso de mantenimiento desactivado: falta NOTIFY_CHANNEL_ID en el .env")
+
+        if WEEKLY_ANNOUNCE_CHANNEL_ID and pubg_client:
+            check_weekly_announce_loop.start()
+        else:
+            log.warning(
+                "Anuncio semanal automático desactivado: falta WEEKLY_ANNOUNCE_CHANNEL_ID "
+                "(o NOTIFY_CHANNEL_ID) o PUBG_API_KEY en el .env"
+            )
 
 
 client = PubgBot()
@@ -442,6 +464,66 @@ async def before_check_maintenance_loop():
     await client.wait_until_ready()
 
 
+# --- Loop en background: anuncio semanal automático del jugador de la semana ---
+@tasks.loop(minutes=30)
+async def check_weekly_announce_loop():
+    now = datetime.now(timezone.utc)
+    if now.weekday() != WEEKLY_ANNOUNCE_WEEKDAY or now.hour != WEEKLY_ANNOUNCE_HOUR_UTC:
+        return
+    if was_announced_this_week():
+        return
+
+    channel = client.get_channel(int(WEEKLY_ANNOUNCE_CHANNEL_ID))
+    if channel is None:
+        log.warning(f"No encuentro el canal de Discord con id {WEEKLY_ANNOUNCE_CHANNEL_ID}")
+        return
+
+    try:
+        roster = load_roster()
+    except RosterError:
+        log.warning("Anuncio semanal: no hay roster configurado (squad.json o SQUAD_ROSTER)")
+        return
+
+    try:
+        results = await pubg_client.get_squad_stats(roster, "squad")
+    except Exception:
+        log.exception("Error inesperado consultando PUBG API (anuncio semanal)")
+        return
+
+    current_stats = {r["name"]: r["stats"] for r in results if r["stats"]}
+    deltas = get_weekly_deltas(current_stats)
+
+    ranking = [
+        (name, d["avg_damage"], d["rounds"])
+        for name, d in deltas.items()
+        if d is not None
+    ]
+    ranking.sort(key=lambda x: x[1], reverse=True)
+
+    lines = []
+    if ranking:
+        for i, (name, avg_damage, rounds) in enumerate(ranking, start=1):
+            medal = {1: "🏆", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
+            lines.append(f"{medal} **{name}** — {avg_damage} dmg prom. ({rounds} partidas)")
+    else:
+        lines.append("Nadie del squad tuvo partidas nuevas suficientes esta semana.")
+
+    embed = discord.Embed(
+        title="📅 Jugador de la semana",
+        description="\n".join(lines),
+        color=discord.Color.gold(),
+    )
+    await channel.send(embed=embed)
+
+    reset_weekly()
+    mark_announced_this_week()
+
+
+@check_weekly_announce_loop.before_loop
+async def before_check_weekly_announce_loop():
+    await client.wait_until_ready()
+
+
 # --- Slash command: /ayuda ---
 @client.tree.command(name="ayuda", description="Muestra los comandos disponibles del bot")
 async def ayuda(interaction: discord.Interaction):
@@ -498,6 +580,10 @@ async def ayuda(interaction: discord.Interaction):
         name="/ayuda",
         value="Muestra este mensaje.",
         inline=False,
+    )
+    embed.set_footer(
+        text="Además: el bot anuncia solo el jugador de la semana cada domingo y avisa "
+        "si hay mantenimiento nuevo de PUBG (según configuración)."
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 

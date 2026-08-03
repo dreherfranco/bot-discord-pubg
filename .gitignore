@@ -16,6 +16,7 @@ __pycache__/
 weekly_snapshots.json
 live_state.json
 steam_news_state.json
+weekly_announce_state.json
 
 # Basura de sistema operativo
 Thumbs.db

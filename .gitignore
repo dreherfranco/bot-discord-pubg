@@ -1,0 +1,24 @@
+# Secretos y configuración local
+.env
+
+# Roster real del squad (nombres de jugadores) - queda solo local
+squad.json
+
+# Entorno virtual
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+
+# Estado que genera el bot en runtime (no es código, se regenera solo)
+weekly_snapshots.json
+live_state.json
+
+# Basura de sistema operativo
+Thumbs.db
+.DS_Store
+
+# Logs, si en algún momento el bot escribe a archivo
+*.log

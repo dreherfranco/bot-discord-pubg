@@ -7,6 +7,8 @@ Bot de Discord con:
   - /vs <jugador1> <jugador2>    -> compara stats lifetime de dos jugadores
   - /racha <jugador>             -> racha de victorias o de partidas sin kills
   - /armafavorita <jugador>      -> arma con más kills en las últimas partidas
+  - /mantenimiento               -> último aviso de mantenimiento (chequeo manual)
+  - Aviso automático en un canal cuando aparece un anuncio nuevo de mantenimiento
 
 Configuración: ver .env.example / README.md
 """
@@ -16,6 +18,7 @@ import logging
 
 import discord
 from discord import app_commands
+from discord.ext import tasks
 from dotenv import load_dotenv
 
 from pubg_client import (
@@ -30,6 +33,13 @@ from pubg_client import (
 )
 from squad_roster import load_roster, RosterError
 from squad_weekly import get_weekly_deltas, reset_all as reset_weekly
+from steam_news import (
+    fetch_recent_news,
+    is_maintenance_related,
+    get_new_maintenance_announcements,
+    format_announcement,
+    SteamNewsError,
+)
 
 load_dotenv()
 
@@ -40,6 +50,8 @@ log = logging.getLogger("pubg-bot")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 PUBG_API_KEY = os.getenv("PUBG_API_KEY")
 PUBG_SHARD = os.getenv("PUBG_SHARD", "steam")
+NOTIFY_CHANNEL_ID = os.getenv("NOTIFY_CHANNEL_ID")  # canal donde avisar mantenimiento
+MAINTENANCE_CHECK_SECONDS = int(os.getenv("MAINTENANCE_CHECK_SECONDS", "1800"))  # 30 min
 
 # --- Cliente de la API de PUBG ---
 pubg_client = PubgClient(api_key=PUBG_API_KEY, shard=PUBG_SHARD) if PUBG_API_KEY else None
@@ -54,6 +66,10 @@ class PubgBot(discord.Client):
 
     async def setup_hook(self):
         await self.tree.sync()
+        if NOTIFY_CHANNEL_ID:
+            check_maintenance_loop.start()
+        else:
+            log.warning("Aviso de mantenimiento desactivado: falta NOTIFY_CHANNEL_ID en el .env")
 
 
 client = PubgBot()
@@ -361,6 +377,71 @@ async def reiniciarsemana(interaction: discord.Interaction):
     await interaction.response.send_message("Checkpoint semanal reiniciado para todo el squad.", ephemeral=True)
 
 
+# --- Slash command: /mantenimiento ---
+@client.tree.command(name="mantenimiento", description="Último aviso de mantenimiento de PUBG (vía noticias de Steam)")
+async def mantenimiento(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        items = await fetch_recent_news(count=15)
+    except SteamNewsError as e:
+        await interaction.followup.send(f"No pude consultar las noticias de Steam: {e}")
+        return
+    except Exception:
+        log.exception("Error inesperado consultando Steam News")
+        await interaction.followup.send("Ocurrió un error inesperado consultando las noticias de Steam.")
+        return
+
+    maintenance_items = [i for i in items if is_maintenance_related(i)]
+
+    if not maintenance_items:
+        await interaction.followup.send(
+            "No encontré avisos de mantenimiento recientes en las noticias de Steam de PUBG."
+        )
+        return
+
+    texto = format_announcement(maintenance_items[0])
+    embed = discord.Embed(description=texto, color=discord.Color.orange())
+    embed.set_footer(text="Fuente: noticias de Steam (no hay API oficial de PUBG para esto)")
+    await interaction.followup.send(embed=embed)
+
+
+# --- Loop en background: chequea avisos de mantenimiento nuevos en Steam ---
+@tasks.loop(seconds=MAINTENANCE_CHECK_SECONDS)
+async def check_maintenance_loop():
+    try:
+        new_items = await get_new_maintenance_announcements()
+    except SteamNewsError:
+        log.exception("Error consultando Steam News (loop)")
+        return
+    except Exception:
+        log.exception("Error inesperado en el chequeo de mantenimiento")
+        return
+
+    if not new_items:
+        return
+
+    channel = client.get_channel(int(NOTIFY_CHANNEL_ID))
+    if channel is None:
+        log.warning(f"No encuentro el canal de Discord con id {NOTIFY_CHANNEL_ID}")
+        return
+
+    for item in new_items:
+        texto = format_announcement(item)
+        embed = discord.Embed(
+            title="⚠️ Aviso de mantenimiento de PUBG",
+            description=texto,
+            color=discord.Color.orange(),
+        )
+        embed.set_footer(text="Fuente: noticias de Steam")
+        await channel.send(embed=embed)
+
+
+@check_maintenance_loop.before_loop
+async def before_check_maintenance_loop():
+    await client.wait_until_ready()
+
+
 # --- Slash command: /ayuda ---
 @client.tree.command(name="ayuda", description="Muestra los comandos disponibles del bot")
 async def ayuda(interaction: discord.Interaction):
@@ -401,6 +482,11 @@ async def ayuda(interaction: discord.Interaction):
     embed.add_field(
         name="/armafavorita <jugador> [partidas]",
         value="Arma con más kills en sus últimas partidas (analiza telemetry, puede tardar unos segundos).",
+        inline=False,
+    )
+    embed.add_field(
+        name="/mantenimiento",
+        value="Último aviso de mantenimiento de PUBG encontrado en las noticias de Steam.",
         inline=False,
     )
     embed.add_field(

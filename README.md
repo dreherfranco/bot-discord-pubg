@@ -9,8 +9,11 @@ Bot en Python (discord.py) con estos comandos:
 - `/vs <jugador1> <jugador2> [modo]`: compara las stats lifetime de dos jugadores lado a lado.
 - `/racha <jugador>`: detecta si viene de una racha de victorias o de partidas sin kills.
 - `/armafavorita <jugador> [partidas]`: arma con más kills en sus últimas partidas (analiza telemetry).
+- `/mantenimiento`: último aviso de mantenimiento de PUBG encontrado en las noticias de Steam (chequeo manual).
 - `/reiniciarsemana`: reinicia manualmente el checkpoint semanal (requiere permiso "Gestionar servidor").
 - `/ayuda`: lista estos comandos dentro de Discord.
+
+Además, si configurás `NOTIFY_CHANNEL_ID`, el bot chequea solo cada 30 minutos si hay un aviso de mantenimiento nuevo y lo postea en ese canal (sin que nadie tenga que pedirlo).
 
 ## Roster del squad (`squad.json`)
 
@@ -31,6 +34,12 @@ cp squad.json.example squad.json
 ```
 
 Para agregar o sacar gente del squad, editá `squad.json` y guardá — no hace falta reiniciar el bot, se lee cada vez que se usa `/squadstats` o `/jugadordelasemana`. Máximo 10 jugadores (límite de una request a la API de PUBG).
+
+## Aviso de mantenimiento (`NOTIFY_CHANNEL_ID`)
+
+PUBG/Krafton no tiene una API oficial para avisos de mantenimiento — los anuncian en Twitter/X, Steam y su web. El bot chequea las **noticias de Steam** (endpoint público, sin API key) y filtra las que mencionen mantenimiento/downtime. Es la fuente más confiable a la que se puede acceder por API, pero no es 100% infalible: puede tardar en aparecer si Krafton lo publica primero en otro lado, o (raramente) no detectar un aviso si no usa ninguna de las palabras clave que busca el bot.
+
+Para activar el chequeo automático, en Discord activá el modo desarrollador (Configuración → Avanzado) y copiá el ID del canal donde querés el aviso (clic derecho sobre el canal → Copiar ID), y ponelo en `NOTIFY_CHANNEL_ID` del `.env`. Si no lo configurás, el chequeo automático queda desactivado, pero `/mantenimiento` sigue funcionando igual como comando manual.
 
 ## 1. Requisitos
 
@@ -90,6 +99,7 @@ Mientras tengas la terminal abierta y `python bot.py` corriendo, el bot funciona
    - `PUBG_API_KEY`
    - `PUBG_SHARD` (`steam`)
    - `SQUAD_ROSTER` — **importante**: como `squad.json` no se sube al repo (está en `.gitignore` a propósito), acá tenés que definir el roster como variable de entorno, con los nombres separados por coma. Ejemplo: `SQUAD_ROSTER=dreher,DubenDoldan,aregol333,Matias533,KuxuroElDios,LaBolcholsa`
+   - `NOTIFY_CHANNEL_ID` — opcional, si querés el aviso automático de mantenimiento.
 6. Guardá — Railway redeploya solo y el bot debería aparecer conectado en los logs.
 
 Railway tiene un plan gratuito con créditos limitados por mes; para que el bot ande sin cortes las 24hs de forma indefinida, en algún momento vas a necesitar pasar a un plan pago (charges por uso, generalmente unos pocos dólares al mes para un bot chico).

@@ -15,6 +15,7 @@ __pycache__/
 # Estado que genera el bot en runtime (no es código, se regenera solo)
 weekly_snapshots.json
 live_state.json
+steam_news_state.json
 
 # Basura de sistema operativo
 Thumbs.db

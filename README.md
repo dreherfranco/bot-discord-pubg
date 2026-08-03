@@ -76,8 +76,25 @@ Si todo salió bien vas a ver en la consola `Conectado como <nombre-del-bot>`. L
 Mientras tengas la terminal abierta y `python bot.py` corriendo, el bot funciona. Para que siga andando todo el tiempo sin tener tu PC prendida, alguna opción:
 
 - **VPS barato** (DigitalOcean, Hetzner, etc.): subís los archivos, instalás dependencias, y corrés el bot con `screen`, `tmux` o como servicio systemd.
-- **Railway / Render**: conectás el repo de GitHub y lo configurás como "worker" (no como web service), seteando las variables de entorno del `.env` en su panel.
+- **Railway / Render**: conectás el repo de GitHub (ver pasos abajo).
 - **Replit**: funciona para pruebas, pero para uso serio 24/7 conviene un VPS o Railway.
+
+### Desplegar en Railway desde GitHub (recomendado)
+
+1. Subí el proyecto a GitHub (ver sección de git más abajo si no lo hiciste).
+2. Andá a https://railway.app y logueate con tu cuenta de GitHub.
+3. **New Project** → **Deploy from GitHub repo** → elegí tu repo `pubg-discord-bot`.
+4. Railway detecta que es Python y arranca el proceso con el `Procfile` que trae el proyecto (`worker: python bot.py`) — no hace falta configurar nada más ahí.
+5. Andá a la pestaña **Variables** del servicio y cargá las mismas variables que tenés en tu `.env` local:
+   - `DISCORD_TOKEN`
+   - `PUBG_API_KEY`
+   - `PUBG_SHARD` (`steam`)
+   - `SQUAD_ROSTER` — **importante**: como `squad.json` no se sube al repo (está en `.gitignore` a propósito), acá tenés que definir el roster como variable de entorno, con los nombres separados por coma. Ejemplo: `SQUAD_ROSTER=dreher,DubenDoldan,aregol333,Matias533,KuxuroElDios,LaBolcholsa`
+6. Guardá — Railway redeploya solo y el bot debería aparecer conectado en los logs.
+
+Railway tiene un plan gratuito con créditos limitados por mes; para que el bot ande sin cortes las 24hs de forma indefinida, en algún momento vas a necesitar pasar a un plan pago (charges por uso, generalmente unos pocos dólares al mes para un bot chico).
+
+Cada vez que hagas `git push` a tu repo, Railway redespliega automáticamente la versión nueva.
 
 ## Notas
 
